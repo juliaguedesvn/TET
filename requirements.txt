@@ -2,3 +2,7 @@ streamlit
 pandas
 geopandas
 plotly
+matplotlib
+geopandas
+plotly
+seaborn
