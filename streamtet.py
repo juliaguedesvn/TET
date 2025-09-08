@@ -1,83 +1,123 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.express as px
 
-# Título do app
-st.title("Análise de Casos Confirmados de Tétano no Brasil")
-
+# -------------------------------
 # Carregar dados
-@st.cache_data
-def load_data():
-    # Usar encoding latin1 para evitar UnicodeDecodeError
-    df = pd.read_csv("tettot.csv", encoding="latin1")
+# -------------------------------
+tettot = pd.read_csv("tettot.csv", encoding="latin1")
+
+st.set_page_config(page_title="Observatório do Tétano", layout="wide")
+st.title("🧪 Observatório do Tétano Acidental no Brasil")
+st.markdown("Casos confirmados no SUS (2007–2023)")
+
+# -------------------------------
+# Filtros interativos
+# -------------------------------
+anos = sorted(tettot["NU_ANO"].unique())
+ufs = sorted(tettot["SG_UF_NOT"].unique())
+sexos = sorted(tettot["CS_SEXO"].unique())
+
+filtro_ano = st.multiselect("Ano", anos, default=anos)
+filtro_uf = st.multiselect("UF", ufs, default=ufs)
+filtro_sexo = st.multiselect("Sexo", sexos, default=sexos)
+
+# Aplicar filtros
+df_filtrado = tettot[
+    (tettot["NU_ANO"].isin(filtro_ano)) &
+    (tettot["SG_UF_NOT"].isin(filtro_uf)) &
+    (tettot["CS_SEXO"].isin(filtro_sexo))
+]
+
+# -------------------------------
+# Abas principais
+# -------------------------------
+aba1, aba2, aba3, aba4 = st.tabs([
+    "📊 Panorama Nacional",
+    "👥 Perfil dos Casos",
+    "💉 Infecção & Vacinação",
+    "🏥 Clínico & Evolução"
+])
+
+# -------------------------------
+# ABA 1 – Panorama Nacional
+# -------------------------------
+with aba1:
+    st.subheader("Série temporal de casos confirmados")
+    serie = df_filtrado.groupby("NU_ANO").size().reset_index(name="Casos")
+    fig1 = px.line(serie, x="NU_ANO", y="Casos", markers=True)
+    st.plotly_chart(fig1, use_container_width=True)
+
+    st.subheader("Distribuição geográfica (por UF)")
+    casos_uf = df_filtrado.groupby("SG_UF_NOT").size().reset_index(name="Casos")
+    fig2 = px.choropleth(
+        casos_uf,
+        geojson="https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson",
+        locations="SG_UF_NOT",
+        featureidkey="properties.sigla",
+        color="Casos",
+        color_continuous_scale="Reds",
+        title="Casos confirmados por UF"
+    )
+    fig2.update_geos(fitbounds="locations", visible=False)
+    st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("Tabela resumo: Casos por ano e UF")
+    resumo = df_filtrado.groupby(["NU_ANO", "SG_UF_NOT"]).size().reset_index(name="Casos")
+    st.dataframe(resumo)
+
+# -------------------------------
+# ABA 2 – Perfil dos Casos
+# -------------------------------
+with aba2:
+    def grafico_contagem(df, coluna, titulo):
+        counts = df[coluna].value_counts().reset_index()
+        counts.columns = [coluna, "Casos"]
+        fig = px.bar(counts, x=coluna, y="Casos", title=titulo)
+        st.plotly_chart(fig, use_container_width=True)
+
+    grafico_contagem(df_filtrado, "CS_SEXO", "Distribuição por Sexo")
+    fig_idade = px.histogram(df_filtrado, x="IDADE", nbins=20, labels={"IDADE":"Idade"}, title="Distribuição Etária")
+    st.plotly_chart(fig_idade, use_container_width=True)
+    grafico_contagem(df_filtrado, "CS_ESCOL_N", "Escolaridade")
+    grafico_contagem(df_filtrado, "CS_RACA", "Raça/Cor")
+
+# -------------------------------
+# ABA 3 – Infecção e Vacinação
+# -------------------------------
+with aba3:
+    grafico_contagem(df_filtrado, "TP_LOCALLE", "Local provável da infecção")
     
-    # Converter datas
-    df["DT_INVEST"] = pd.to_datetime(df["DT_INVEST"], errors="coerce")
-    df["DT_OBITO"] = pd.to_datetime(df["DT_OBITO"], errors="coerce")
+    dose_counts = df_filtrado["NU_DOSE"].value_counts().reset_index()
+    dose_counts.columns = ["NU_DOSE", "Casos"]
+    dose_counts = dose_counts.sort_values("NU_DOSE")
+    fig_dose = px.bar(dose_counts, x="NU_DOSE", y="Casos", title="Número de doses recebidas")
+    st.plotly_chart(fig_dose, use_container_width=True)
     
-    # Garantir ano como string para filtros
-    df["NU_ANO"] = df["NU_ANO"].astype(str)
+    grafico_contagem(df_filtrado, "TP_PROFILA", "Profilaxia pós-exposição")
+
+# -------------------------------
+# ABA 4 – Clínico & Evolução
+# -------------------------------
+with aba4:
+    sintomas = ["CS_TRISMO", "CS_RISO", "CS_OPISTOT", "CS_NUCA",
+                "CS_ABDOMIN", "CS_MEMBROS", "CS_CRISES"]
+    freq = df_filtrado[sintomas].apply(lambda col: (col == "Sim").sum())
+    freq_df = freq.reset_index()
+    freq_df.columns = ["Sintoma", "Casos"]
+    fig_sintomas = px.bar(freq_df, x="Sintoma", y="Casos", title="Sintomas mais frequentes")
+    st.plotly_chart(fig_sintomas, use_container_width=True)
+
+    grafico_contagem(df_filtrado, "EVOLUCAO", "Evolução dos casos")
     
-    return df
-
-df = load_data()
-
-# --- Filtros ---
-anos = st.multiselect(
-    "Selecione o(s) ano(s)", 
-    options=df["NU_ANO"].unique(), 
-    default=df["NU_ANO"].unique()
-)
-ufs = st.multiselect(
-    "Selecione o(s) estado(s)", 
-    options=df["SG_UF_NOT"].unique(), 
-    default=df["SG_UF_NOT"].unique()
-)
-
-df_filtrado = df[(df["NU_ANO"].isin(anos)) & (df["SG_UF_NOT"].isin(ufs))]
-
-st.subheader("Dados filtrados")
-st.write(f"Total de registros: {len(df_filtrado)}")
-
-# --- Pirâmide Etária ---
-st.subheader("Pirâmide Etária dos Casos Confirmados")
-
-piramide = df_filtrado.groupby(["IDADE", "CS_SEXO"]).size().unstack(fill_value=0)
-piramide = piramide.rename(columns={"Masculino": "Homens", "Feminino": "Mulheres"})
-
-if "Homens" in piramide.columns:
-    piramide["Homens"] = -piramide["Homens"]
-
-fig, ax = plt.subplots(figsize=(8,6))
-if "Homens" in piramide.columns:
-    ax.barh(piramide.index, piramide["Homens"], color="steelblue", label="Homens")
-if "Mulheres" in piramide.columns:
-    ax.barh(piramide.index, piramide["Mulheres"], color="salmon", label="Mulheres")
-
-ax.set_xlabel("Número de casos")
-ax.set_ylabel("Idade")
-ax.set_title("Pirâmide etária dos casos confirmados de tétano")
-ax.legend()
-st.pyplot(fig)
-
-# --- Série Temporal ---
-st.subheader("Casos e Óbitos por Mês")
-
-df_filtrado["MES_INVEST"] = df_filtrado["DT_INVEST"].dt.to_period("M")
-df_filtrado["MES_OBITO"] = df_filtrado["DT_OBITO"].dt.to_period("M")
-
-casos = df_filtrado.groupby("MES_INVEST").size()
-obitos = df_filtrado.groupby("MES_OBITO").size()
-
-serie = pd.DataFrame({"Casos": casos, "Óbitos": obitos}).fillna(0)
-
-fig2, ax2 = plt.subplots(figsize=(10,6))
-serie["Casos"].plot(ax=ax2, label="Casos", linewidth=2)
-serie["Óbitos"].plot(ax=ax2, label="Óbitos", linewidth=2)
-
-ax2.set_ylabel("Número de notificações")
-ax2.set_xlabel("Mês")
-ax2.set_title("Casos e óbitos confirmados de tétano por mês")
-ax2.legend()
-st.pyplot(fig2)
+    letalidade = (
+        df_filtrado.groupby("NU_ANO")
+        .apply(lambda x: (x["EVOLUCAO"] == "Óbito").mean() * 100)
+        .reset_index(name="Letalidade")
+    )
+    fig_letalidade = px.line(letalidade, x="NU_ANO", y="Letalidade", markers=True, title="Taxa de letalidade (%) por ano")
+    st.plotly_chart(fig_letalidade, use_container_width=True)
+    
+    obitos = df_filtrado[df_filtrado["EVOLUCAO"] == "Óbito"]
+    st.subheader("Tabela de óbitos")
+    st.dataframe(obitos[["NU_ANO", "SG_UF_NOT", "IDADE", "CS_SEXO", "DT_OBITO"]])
