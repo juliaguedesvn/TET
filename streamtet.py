@@ -121,3 +121,4 @@ with aba4:
     obitos = df_filtrado[df_filtrado["EVOLUCAO"] == "Óbito"]
     st.subheader("Tabela de óbitos")
     st.dataframe(obitos[["NU_ANO", "SG_UF_NOT", "IDADE", "CS_SEXO", "DT_OBITO"]])
+
